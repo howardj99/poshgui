@@ -53,18 +53,13 @@ Function New-Runspace
 Function Start-Runspace
 {
     [CmdletBinding()]
-    Param([Parameter(Mandatory=$True,Position=0)][Runspace]$Runspace,
-          [Parameter(Mandatory=$True,Position=1)][ScriptBlock]$ScriptBlock,
-          [Parameter(Mandatory=$True,Position=2)][Boolean]$InvokeAsync)
+    Param([Parameter(Mandatory=$True,Position=0)]$Runspace,
+          [Parameter(Mandatory=$True,Position=1)]$ScriptBlock)
 
     $Thread = [PowerShell]::Create('NewRunspace').AddScript($ScriptBlock)
     $Thread.Runspace = $Runspace
-    
-    If ($InvokeAsync) {
-        $Thread.BeginInvoke()
-    } Else {
-        $Thread.Invoke()
-    }
+
+    Return $Thread
 }
 #endregion
 
@@ -73,7 +68,8 @@ Function Start-Runspace
 #----Script Execution-----------------------------------------#
 #-------------------------------------------------------------#
 #region
-$ControlsHash.NewRunspace = ${Function:New-Runspace}
+$ControlsHash.NewRunspace   = ${Function:New-Runspace}
+$ControlsHash.StartRunspace = ${Function:Start-Runspace}
 
 $ConsoleScript = {
     $WindowScript = {
@@ -111,17 +107,13 @@ $ConsoleScript = {
     }
 
     # Dedicated runspace and thread for GUI window
-    $WindowRunspace = &$ControlsHash.NewRunspace
-
-    $WindowThread = [PowerShell]::Create('NewRunspace').AddScript($WindowScript)
-    $WindowThread.Runspace = $WindowRunspace
+    $WindowRunspace = & $ControlsHash.NewRunspace
+    $WindowThread = & $ControlsHash.StartRunspace $WindowRunspace $WindowScript
     $WindowThread.Invoke()
 
     # Dedicated runspace and thread for GUI control events
     $EventRunspace = &$ControlsHash.NewRunspace
-
-    $EventThread = [PowerShell]::Create('NewRunspace').AddScript($EventScript)
-    $EventThread.Runspace = $EventRunspace
+    $EventThread = & $ControlsHash.StartRunspace $EventRunspace $EventScript
     $EventThread.Invoke()
 
     # Repurpose WindowThread since it owns the Window object
@@ -131,7 +123,7 @@ $ConsoleScript = {
     # Invoke Asynchronously
     $WindowStatus = $WindowThread.BeginInvoke()
     Do {<#Nothing#>} Until ($WindowStatus.IsCompleted)
-    $Result = $WindowThread.EndInvoke($WindowStatus)
+    $WindowStatus = $WindowThread.EndInvoke($WindowStatus)
 
     # Clean up runspaces
     $AllRunspaces = Get-Variable -Name *Runspace
@@ -144,15 +136,13 @@ $ConsoleScript = {
 }
 
 # Dedicated runspace and thread for console host
-$ConsoleRunspace = &$ControlsHash.NewRunspace
-
-$ConsoleThread = [PowerShell]::Create('NewRunspace').AddScript($ConsoleScript)
-$ConsoleThread.Runspace = $ConsoleRunspace
+$ConsoleRunspace = & $ControlsHash.NewRunspace
+$ConsoleThread = & $ControlsHash.StartRunspace $ConsoleRunspace $ConsoleScript
 
 # Invoke Asynchronously
 $ConsoleStatus = $ConsoleThread.BeginInvoke()
 Do { <#Nothing#> } Until ($ConsoleStatus.IsCompleted)
 $ConsoleStatus = $ConsoleThread.EndInvoke($ConsoleStatus)
 
-# Remove-Variable ControlsHash, *Runspace, *Script, *Status, *Thread, Result
+# Remove-Variable ControlsHash, *Runspace, *Script, *Status, *Thread
 #endregion
