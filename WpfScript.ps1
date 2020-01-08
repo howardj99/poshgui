@@ -25,9 +25,9 @@ $Xaml = @"
 "@
 
 # Sample code for encoding/decoding strings; possible cleaner implementation
-$EncodedXaml = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($Xaml))
+$EncodedXaml = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Xaml))
 $XamlBytes   = [Convert]::FromBase64String($EncodedXaml)
-$DecodedXaml = [Text.Encoding]::Unicode.GetString($XamlBytes, 0, $XamlBytes.Length)
+$DecodedXaml = [Text.Encoding]::UTF8.GetString($XamlBytes, 0, $XamlBytes.Length)
 
 #endregion
 
