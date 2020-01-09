@@ -1,7 +1,7 @@
 var header = document.querySelector('header');
 var section = document.querySelector('section');
 
-var requestURL = 'https://api.myjson.com/bins/qfaq1';
+var requestURL = 'https://api.myjson.com/bins/gfzrq'; //JSON hosted at myjson.com for testing
 var request = new XMLHttpRequest();
 
 request.open('GET', requestURL);
@@ -14,185 +14,36 @@ request.onload = function() {
 }
 
 function getUserScript(jsonObject) {
-    var xaml = jsonObject['xaml'];
-    var logic = jsonObject['logic'];
+    var scriptEntry      = jsonObject['ScriptEntry'];
+    var utilityFunctions = jsonObject['UtilityFunctions'];
+    var jobCleanup       = jsonObject['JobCleanup'];
+    var eventHandlers    = jsonObject['EventHandlers'];
+    var scriptExecution  = jsonObject['ScriptExecution'];
 
-    var userScript: string = `
-#-------------------------------------------------------------#
-#----Initial Declarations-------------------------------------#
-#-------------------------------------------------------------#
-#region
+    var userScript: string = 
+        scriptEntry.Header +
+        scriptEntry.Body.Declarations +
+        scriptEntry.Body.Xaml +
+        scriptEntry.Footer +
+        utilityFunctions.Header +
+        utilityFunctions.Body +
+        utilityFunctions.Footer +
+        jobCleanup.Header +
+        jobCleanup.Body +
+        jobCleanup.Footer +
+        eventHandlers.Header +
+        eventHandlers.Body[0] + //to-do: loop
+        eventHandlers.Footer +
+        scriptExecution.Header +
+        scriptExecution.Body.XamlImport +
+        scriptExecution.Body.EventSubscriptions[0] + //to-do: loop
+        scriptExecution.Body.WindowLaunch +
+        scriptExecution.Footer;
 
-Add-Type -AssemblyName PresentationCore, PresentationFramework, WindowsBase
+    var textArea: HTMLTextAreaElement = document.createElement('textarea');
+    textArea.rows = 100;
+    textArea.cols = 160;
+    textArea.textContent = userScript;
 
-$Global:SyncHash = [HashTable]::Synchronized(@{})
-
-$Xaml = @"
-<Window
-        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:local="clr-namespace:XamlGenerator"
-        mc:Ignorable="d"
-        Title="MainWindow" SizeToContent="WidthAndHeight">
-    <StackPanel x:Name="StackPanel" Height="450" Width="800">
-        <TextBox x:Name="TextBox" Height="350" Margin="10,10,10,0" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" VerticalAlignment="Bottom"/>
-        <ProgressBar x:Name="ProgressBar" Height="20" Margin="10,10,10,0" VerticalAlignment="Bottom"/>
-        <Button x:Name="Button" Content="Test UI" HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="10"/>
-    </StackPanel>
-</Window>
-"@
-
-#endregion
-
-#-------------------------------------------------------------#
-#----Utility Functions----------------------------------------#
-#-------------------------------------------------------------#
-#region
-
-Function Start-RunspaceTask
-{
-    [CmdletBinding()]
-    Param([Parameter(Mandatory=$True,Position=0)][ScriptBlock]$ScriptBlock)
-
-    $Runspace = [RunspaceFactory]::CreateRunspace($Host)
-    $Runspace.ApartmentState = 'STA'
-    $Runspace.ThreadOptions  = 'ReuseThread'
-    $Runspace.Open()
-    $Runspace.SessionStateProxy.SetVariable('SyncHash', $SyncHash)
-
-    $Thread = [PowerShell]::Create('NewRunspace').AddScript($ScriptBlock)
-    $Thread.Runspace = $Runspace
-    
-    [Void]$Jobs.Add([PSObject]@{ PowerShell = $Thread ; Runspace = $Thread.BeginInvoke() })
-}
-
-Function Update-Control
-{
-    [CmdletBinding()]
-    Param([Parameter(Mandatory=$True,Position=0)][System.Windows.Controls.Control]$Control,
-          [Parameter(Mandatory=$True,Position=1)][ScriptBlock]$ScriptBlock)
-
-    $Control.Dispatcher.Invoke($ScriptBlock, 'Normal')
-}
-
-$SyncHash.StartRunspaceTask = \${Function:Start-RunspaceTask}
-$SyncHash.UpdateControl  = \${Function:Update-Control}
-
-#endregion
-
-#-------------------------------------------------------------#
-#----Runspace Cleanup Subroutine------------------------------#
-#-------------------------------------------------------------#
-#region
-
-# Background runspace to clean up jobs (credit to Boe Prox PoshRSJob module and FoxDeploy)
-$Script:JobCleanup = [HashTable]::Synchronized(@{})
-$Script:Jobs = [System.Collections.ArrayList]::Synchronized([System.Collections.ArrayList]::new())
-
-$JobCleanup.Flag = $True
-
-$JobsRunspace = [RunspaceFactory]::CreateRunspace()
-$JobsRunspace.ApartmentState = 'STA'
-$JobsRunspace.ThreadOptions  = 'ReuseThread'
-$JobsRunspace.Open()
-$JobsRunspace.SessionStateProxy.SetVariable('JobCleanup', $JobCleanup)
-$JobsRunspace.SessionStateProxy.SetVariable('Jobs', $Jobs)
-
-$JobCleanup.PowerShell = [PowerShell]::Create().AddScript({
-    # Routine to handle completed runspaces
-    Do
-    {    
-        ForEach($Runspace in $Jobs)
-        {            
-            If ($Runspace.Runspace.IsCompleted)
-            {
-                [Void]$Runspace.Powershell.EndInvoke($Runspace.Runspace)
-                $Runspace.Powershell.Dispose()
-                $Runspace.Runspace   = $null
-                $Runspace.Powershell = $null               
-            } 
-        }
-
-        # Clean out unused runspace jobs
-        $TempHash = $Jobs.Clone()
-        $TempHash.Where{ $_.Runspace -eq $Null }.ForEach{ $Jobs.Remove($_) }
-        
-        Start-Sleep -Seconds 1     
-    }
-    While ($JobCleanup.Flag)
-})
-
-$JobCleanup.PowerShell.Runspace = $JobsRunspace
-$JobCleanup.Thread = $JobCleanup.PowerShell.BeginInvoke()  
-
-#endregion
-
-#-------------------------------------------------------------#
-#----Control Event Handlers-----------------------------------#
-#-------------------------------------------------------------#
-#region
-
-# Event actions defined separately to shorten main "Script Execution" code
-
-# Generated by site as $<Control name>_<event name>
-$Button_Click = {
-    $SyncHash.TextBox.AppendText('Populating list...')
-
-    $SyncHash.FileList = Get-ChildItem $env:USERPROFILE'\Documents\Code Projects' -File -Recurse -ErrorAction SilentlyContinue
-
-    $SyncHash.TextBox.AppendText('Done!')
-
-    $SyncHash.ProgressBar.Maximum  = $SyncHash.FileList.Count
-    $SyncHash.ProgressBar.Minimum  = 0
-    $SyncHash.ProgressBar.Value    = 0
-
-    & $SyncHash.StartRunspaceTask {
-        For($i = 1 ; $i -le $SyncHash.FileList.Count ; $i++)
-        {
-            & $SyncHash.UpdateControl $SyncHash.Window {
-                $SyncHash.TextBox.AppendText("\`n$($SyncHash.FileList[$i].FullName)")
-                $SyncHash.ProgressBar.Value = $i
-            }
-        }
-    }
-}
-
-#endregion
-
-#-------------------------------------------------------------#
-#----Script Execution-----------------------------------------#
-#-------------------------------------------------------------#
-#region
-
-$SyncHash.Window = [Windows.Markup.XamlReader]::Parse($Xaml)
-
-$Elements = ([Xml]$Xaml).GetElementsByTagName('*')
-
-ForEach($Element in $Elements)
-{
-    $Control = $SyncHash.Window.FindName($Element.Name)
-    If($Control) { $SyncHash.Add($Control.Name, $Control) }
-}
-
-# Each event that user specifies goes here, grouped by UI control
-$SyncHash.Button.Add_Click($Button_Click)
-
-$SyncHash.Window.Add_Closed({
-    Write-Verbose 'Halt runspace cleanup job processing'
-    $JobCleanup.Flag = $False
-
-    #Stop all runspaces
-    $JobCleanup.PowerShell.Dispose()      
-})
-
-[Void]$SyncHash.Window.ShowDialog()
-$SyncHash.Error = $Error
-
-#endregion`;
-
-    var p = document.createElement('p');
-    p.textContent = userScript;
-    section.appendChild(p);
+    section.appendChild(textArea);
 }
