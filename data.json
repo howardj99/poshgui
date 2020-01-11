@@ -1,27 +1,47 @@
 {
-{
-  xaml : "<Window
-    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    x:Name="Window">
-    <Grid x:Name="Grid">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="Auto"/>
-            <ColumnDefinition Width="Auto"/>
-        </Grid.ColumnDefinitions>
-        <TextBox x:Name = "PathTextBox"
-            Width="150"
-            Grid.Column="0"
-            Grid.Row="0"
-        />
-    </Grid>
-</Window>",
-logic : "Write-Host 'Logic of the app will be here, like functions'"
+    "ScriptEntry" :
+    {
+        "Header" : "#-------------------------------------------------------------#\r\n#----Initial Declarations-------------------------------------#\r\n#-------------------------------------------------------------#\r\n#region",
+        "Body" :
+        {
+            "Declarations" : "Add-Type -AssemblyName PresentationCore, PresentationFramework, WindowsBase\r\n\r\n$Global:SyncHash = [HashTable]::Synchronized(@{})\r\n\r\n$Xaml = ",
+            "Xaml" : ""
+        },
+        "Footer" : "#region\r\n\r\n"
+    },    
+    "UtilityFunctions" :
+    {
+        "Header" : "#-------------------------------------------------------------#\r\n#----Utility Functions----------------------------------------#\r\n#-------------------------------------------------------------#\r\n#region\r\n\r\n",
+        "Body" : "Function Start-RunspaceTask\r\n{\r\n\t[CmdletBinding()]\r\n\tParam([Parameter(Mandatory=$True,Position=0)][ScriptBlock]$ScriptBlock,\r\n\t\t  [Parameter(Mandatory=$True,Position=1)][PSObject[]]$ProxyVars)\r\n\r\n\t$Runspace = [RunspaceFactory]::CreateRunspace($Host)\r\n\t$Runspace.ApartmentState = \u0027STA\u0027\r\n\t$Runspace.ThreadOptions  = \u0027ReuseThread\u0027\r\n\t$Runspace.Open()\r\n\r\n\tForEach($Var in $ProxyVars)\r\n\t{\r\n\t\t$Runspace.SessionStateProxy.SetVariable($Var.Name, $Var.Variable)\r\n\t}\r\n\r\n\t$Thread = [PowerShell]::Create(\u0027NewRunspace\u0027).AddScript($ScriptBlock)\r\n\t$Thread.Runspace = $Runspace\r\n\t\r\n\t[Void]$Jobs.Add([PSObject]@{ PowerShell = $Thread ; Runspace = $Thread.BeginInvoke() })\r\n}\r\n\r\nFunction Update-Control\r\n{\r\n\t[CmdletBinding()]\r\n\tParam([Parameter(Mandatory=$True,Position=0)][System.Windows.Controls.Control]$Control,\r\n\t\t  [Parameter(Mandatory=$True,Position=1)][ScriptBlock]$ScriptBlock)\r\n\r\n\t$Control.Dispatcher.Invoke($ScriptBlock, \u0027Normal\u0027)\r\n}\r\n\r\n$SyncHash.StartRunspaceTask = ${Function:Start-RunspaceTask}\r\n$SyncHash.UpdateControl\t = ${Function:Update-Control}\r\n\r\n",
+        "Footer" : "#endregion\r\n\r\n"
+    },
+    "JobCleanup" :
+    {
+        "Header" : "#-------------------------------------------------------------#\r\n#----Runspace Cleanup Subroutine------------------------------#\r\n#-------------------------------------------------------------#\r\n#region\r\n\r\n",
+        "Body" : "# Background runspace to clean up jobs (credit to Boe Prox PoshRSJob module and FoxDeploy)\r\n$Jobs = [System.Collections.ArrayList]::Synchronized([System.Collections.ArrayList]::new())\r\n\r\n$JobCleanupScript = {\r\n\t# Routine to handle completed runspaces\r\n\tDo\r\n\t{\r\n\t\tForEach($Job in $Jobs)\r\n\t\t{\r\n\t\t\tIf($Job.Runspace.IsCompleted)\r\n\t\t\t{\r\n\t\t\t\t[Void]$Job.Powershell.EndInvoke($Job.Runspace)\r\n\t\t\t\t$Job.PowerShell.Runspace.Close()\r\n\t\t\t\t$Job.PowerShell.Runspace.Dispose()\r\n\t\t\t\t$Runspace.Powershell.Dispose()\r\n\t\t\t\t\r\n\t\t\t\t$Jobs.Remove($Runspace)\r\n\t\t\t}\r\n\t\t}\r\n\r\n\t\tStart-Sleep -Seconds 1\r\n\t}\r\n\tWhile ($SyncHash.CleanupJobs)\r\n}\r\n\r\nStart-RunspaceTask $JobCleanupScript @([PSObject]@{ Name=\u0027Jobs\u0027 ; Variable=$Jobs })\r\n\r\n",
+        "Footer" : "#endregion\r\n\r\n"
+    },
+    "EventHandlers" :
+    {
+        "Header" : "#-------------------------------------------------------------#\r\n#----Control Event Handlers-----------------------------------#\r\n#-------------------------------------------------------------#\r\n#region\r\n\r\n$Button_Click = {\r\n\t$SyncHash.TextBox.AppendText(\u0027Populating list...\u0027)\r\n\r\n\t$SyncHash.FileList = Get-ChildItem $env:USERPROFILE\u0027\\Documents\\Code Projects\u0027 -File -Recurse -ErrorAction SilentlyContinue\r\n\r\n\t$SyncHash.TextBox.AppendText(\u0027Done!\u0027)\r\n\r\n\t$SyncHash.ProgressBar.Maximum  = $SyncHash.FileList.Count\r\n\t$SyncHash.ProgressBar.Minimum  = 0\r\n\t$SyncHash.ProgressBar.Value\t= 0\r\n\r\n\t\u0026 $SyncHash.StartRunspaceTask {\r\n\t\tFor($i = 1 ; $i -le $SyncHash.FileList.Count ; $i++)\r\n\t\t{\r\n\t\t\t\u0026 $SyncHash.UpdateControl $SyncHash.Window {\r\n\t\t\t\t$SyncHash.TextBox.AppendText(\"`n$($SyncHash.FileList[$i].FullName)\")\r\n\t\t\t\t$SyncHash.ProgressBar.Value = $i\r\n\t\t\t}\r\n\t\t}\r\n\t} ([PSObject]@{ Name=\u0027SyncHash\u0027 ; Variable=$SyncHash })\r\n}\r\n\r\n#endregion",
+        "Body" :
+        [
+            
+        ],
+        "Footer" : "#endregion\r\n\r\n"
+    },
+    "ScriptExecution" :
+    {
+        "Header" : "#-------------------------------------------------------------#\r\n#----Script Execution-----------------------------------------#\r\n#-------------------------------------------------------------#\r\n#region\r\n\r\n",
+        "Body" :
+        {
+            "XamlImport" : "$SyncHash.Window = [Windows.Markup.XamlReader]::Parse($Xaml)\r\n\r\n$Elements = ([Xml]$Xaml).GetElementsByTagName(\u0027*\u0027)\r\n\r\nForEach($Element in $Elements)\r\n{\r\n\t$Control = $SyncHash.Window.FindName($Element.Name)\r\n\tIf($Control) { $SyncHash.Add($Control.Name, $Control) }\r\n}\r\n\r\n",
+            "EventSubscriptions" :
+            [
 
-}
-
+            ],
+            "WindowLaunch" : "$SyncHash.Window.Add_Closed({\r\n\tWrite-Verbose \u0027Halt runspace cleanup job processing\u0027\r\n\t$SyncHash.CleanupJobs = $False\r\n})\r\n\r\n# Begin job cleanup subroutine\r\n$SyncHash.CleanupJobs = $True\r\n\r\n[Void]$SyncHash.Window.ShowDialog()\r\n$SyncHash.Error = $Error\r\n\r\n"
+        },
+        "Footer" : "#endregion"
+    }
 }
